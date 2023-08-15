@@ -1,0 +1,9 @@
+[Unit]
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/path/to/bin-day
+Environment=UPRN=
+Environment=WEBHOOK_URL=
+Environment=OPERATOR_EMMAIL=

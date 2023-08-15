@@ -18,6 +18,8 @@ Set the following environment variables:
 
 * `OPERATOR_EMAIL` - Your email address, which is included in the user-agent header of the call to the SCC website.
 
+* `WEBHOOK_SECRET` (optional) - The secret key used to generate the HMAC signature included in the `X-Signature-256` header sent with the webhook request.
+
 ## Example webhook payload
 
 `{"date":"2023-08-16","black":false,"blue":false,"brown":true}`

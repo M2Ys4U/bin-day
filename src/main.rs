@@ -1,7 +1,8 @@
+use hmac::Mac;
 use serde::Serialize;
 use std::env;
 
-const BASE_URL: &'static str =
+const BASE_URL: &str =
     "https://www.salford.gov.uk/bins-and-recycling/bin-collection-days/your-bin-collections/?UPRN=";
 
 #[derive(Serialize)]
@@ -38,12 +39,18 @@ async fn main() {
         }
     };
 
+    let webhook_secret = env::var("WEBHOOK_SECRET").ok();
+
     let mut url = String::with_capacity(BASE_URL.len() + uprn.len());
     url.insert_str(0, BASE_URL);
     url.insert_str(BASE_URL.len(), &uprn);
 
     let client = match reqwest::Client::builder()
-        .user_agent(format!("binday-bot/{} (reqwest/0.11.10; +{}", env!("CARGO_PKG_VERSION"), operator_email))
+        .user_agent(format!(
+            "binday-bot/{} (reqwest/0.11.18; +{})",
+            env!("CARGO_PKG_VERSION"),
+            operator_email
+        ))
         .gzip(true)
         .build()
     {
@@ -82,7 +89,7 @@ async fn main() {
         date: collection_date,
     };
 
-    match post_to_webhook(&client, &webhook_url, &output).await {
+    match post_to_webhook(&client, &webhook_url, webhook_secret, &output).await {
         Ok(_) => {
             println!(
                 "{}",
@@ -155,16 +162,32 @@ fn extract_date(input: &str) -> Result<chrono::naive::NaiveDate, impl std::error
 async fn post_to_webhook(
     client: &reqwest::Client,
     url: &str,
+    webhook_secret: Option<String>,
     output: &Output,
 ) -> Result<(), impl std::error::Error> {
-    client
+    let mut request = client
         .post(url)
         .header(
             "content-type",
             reqwest::header::HeaderValue::from_static("application/json; charset=utf-8"),
         )
-        .json(output)
-        .send()
-        .await
-        .map(|_| ())
+        .json(output);
+
+    if let Some(webhook_secret) = webhook_secret {
+        let mut hmac_state = hmac::Hmac::<sha2::Sha256>::new_from_slice(webhook_secret.as_bytes())
+            .expect("HMAC should be be keyed correctly");
+        hmac_state.update(
+            serde_json::to_string(&output)
+                .expect("Output should serialise")
+                .as_bytes(),
+        );
+        let hmac_final: &[u8] = &hmac_state.finalize().into_bytes();
+        let mut signature_buffer: Vec<u8> = vec![0; hmac_final.len() * 2];
+        serde_hex::utils::intohex(&mut signature_buffer, hmac_final);
+        let signature =
+            String::from_utf8(signature_buffer).expect("HMAC signature string should be be UTF-8");
+        request = request.header("x-signature-256", &signature);
+    }
+
+    request.send().await.map(|_| ())
 }
